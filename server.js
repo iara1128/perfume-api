@@ -28,6 +28,22 @@ const VendaSchema = new mongoose.Schema({
 
 const Venda = mongoose.model("Venda", VendaSchema);
 
+// Adicione o modelo de Caixa
+const Caixa = mongoose.model("Caixa", { total: { type: Number, default: 0 } });
+
+// Rota para buscar o saldo do caixa
+app.get("/caixa", async (req, res) => {
+  let caixa = await Caixa.findOne();
+  if (!caixa) caixa = await Caixa.create({ total: 0 });
+  res.json(caixa);
+});
+
+// Rota para zerar o caixa no banco
+app.post("/caixa/zerar", async (req, res) => {
+  await Caixa.findOneAndUpdate({}, { total: 0 });
+  res.json({ message: "Caixa zerado!" });
+});
+
 // 3. ROTAS
 
 // A. Buscar todas as vendas
@@ -46,31 +62,22 @@ app.post("/vendas", async (req, res) => {
 // C. Atualizar venda (Abatimento ou Pagamento Total)
 // Rota para atualizar valor (Abatimento)
 app.patch("/vendas/:id", async (req, res) => {
-  try {
-    // Pegamos apenas o que queremos mudar do corpo da requisição
-    const { valor, status } = req.body;
+  const { valor, status, valorPago } = req.body;
+  const venda = await Venda.findByIdAndUpdate(
+    req.params.id,
+    { valor, status },
+    { new: true }
+  );
 
-    // Criamos um objeto de atualização APENAS com esses dois campos
-    const camposParaAtualizar = {};
-    if (valor !== undefined) camposParaAtualizar.valor = valor;
-    if (status !== undefined) camposParaAtualizar.status = status;
-
-    // O findByIdAndUpdate agora só mexerá no 'valor' e no 'status'
-    const vendaAtualizada = await Venda.findByIdAndUpdate(
-      req.params.id,
-      { $set: camposParaAtualizar }, // O $set garante que ele não mexa no resto
-      { new: true }
+  // Se houve pagamento, incrementa o total no banco
+  if (valorPago > 0) {
+    await Caixa.findOneAndUpdate(
+      {},
+      { $inc: { total: valorPago } },
+      { upsert: true }
     );
-
-    if (!vendaAtualizada) {
-      return res.status(404).json({ error: "Venda não encontrada" });
-    }
-
-    res.json(vendaAtualizada);
-  } catch (err) {
-    console.error("Erro no PATCH:", err);
-    res.status(500).json({ error: "Erro interno no servidor" });
   }
+  res.json(venda);
 });
 
 // D. Deletar (Para a função de zerar caixa ou limpar histórico)
